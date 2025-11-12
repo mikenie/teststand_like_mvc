@@ -101,7 +101,7 @@ class MainWindow(QMainWindow):
         seq_watcher_splitter.addWidget(watcher_widget)
         
         # 设置默认比例
-        seq_watcher_splitter.setSizes([700, 300])
+        seq_watcher_splitter.setSizes([600, 400])
         
         right_layout.addWidget(seq_watcher_splitter)
         
@@ -126,6 +126,15 @@ class MainWindow(QMainWindow):
         self.step_button.clicked.connect(lambda: self.controller.step_run())
         self.reset_button.clicked.connect(lambda: self.controller.reset_execution())
         self.clear_button.clicked.connect(lambda: self.controller.clear_sequence())
+        
+        # === 连接序列列表选择变化信号到控制器 ===
+        self.sequence_list.itemSelectionChanged.connect(self.controller._on_item_selection_changed_wrapper)
+        
+        # === 定期更新监视器显示 ===
+        from PyQt6.QtCore import QTimer
+        self.watcher_timer = QTimer(self)
+        self.watcher_timer.timeout.connect(self.controller.update_watcher_display)
+        self.watcher_timer.start(1000)  # 每秒更新一次
     
     def create_menu_bar(self):
         """创建菜单栏"""

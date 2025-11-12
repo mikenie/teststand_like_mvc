@@ -83,25 +83,59 @@ class ParamEditor(QWidget):
         if not self.test_loader:
             self.add_param_row("error", "测试加载器未设置", read_only=True)
             return
-        
-        func = self.test_loader.get_function(step.module, step.function)
-        if not func:
-            self.add_param_row("error", "函数未找到", read_only=True)
+
+        # 确保step对象包含必要的模块和函数信息
+        if not step.module or not step.function:
+            self.add_param_row("error", "步骤缺少模块或函数信息", read_only=True)
             return
-        
+            
+        # 尝试获取函数对象
         try:
+            func = self.test_loader.get_function(step.module, step.function)
+            if not func:
+                # 尝试重新加载模块
+                self.test_loader.load_from_directory()
+                func = self.test_loader.get_function(step.module, step.function)
+                
+            if not func:
+                self.add_param_row("error", f"函数未找到: {step.module}.{step.function}", read_only=True)
+                return
+
+            # 直接添加调试信息，确保函数信息正确显示
+            self.add_param_row("function_debug", f"加载函数: {step.module}.{step.function}", read_only=True)
+
+            # 获取函数签名
             sig = inspect.signature(func)
             params = list(sig.parameters.keys())
             
-            for param_name in params:
-                cached_value = step.params.get(param_name, "")
-                edit = self.add_param_row(param_name, cached_value)
-                # 连接信号
-                edit.textChanged.connect(
-                    lambda val, pn=param_name: self._on_param_changed(pn, val)
-                )
-            
+            # 添加参数数量调试信息
+            self.add_param_row("param_count", f"参数数量: {len(params)}", read_only=True)
+
+            # 如果有参数，添加参数行
+            if params:
+                # 清除之前的调试行，只保留实际参数行
+                self.clear_params()
+                
+                for param_name in params:
+                    cached_value = step.params.get(param_name, "")
+                    # 确保创建的输入框能够正确显示
+                    edit = self.add_param_row(param_name, cached_value)
+                    # 确保输入框可见
+                    edit.setVisible(True)
+                    # 连接信号
+                    edit.textChanged.connect(
+                        lambda val, pn=param_name: self._on_param_changed(pn, val)
+                    )
+                
+                # 强制布局更新
+                self.input_params_widget.updateGeometry()
+                self.input_params_widget.show()
+            else:
+                # 没有参数时显示提示
+                self.add_param_row("提示", "该函数无输入参数", read_only=True)
+
             # 显示输出参数
+            # 方法1: 使用函数返回注解
             return_annotation = sig.return_annotation
             if return_annotation != inspect.Signature.empty:
                 if hasattr(return_annotation, '__name__'):
@@ -110,9 +144,19 @@ class ParamEditor(QWidget):
                     output_name = str(return_annotation)
                 self.output_params_label.setText(output_name)
             else:
-                self.output_params_label.setText("未知（无类型注解）")
-        
+                # 方法2: 尝试从test_loader获取预测的返回值名称
+                pred_returns = self.test_loader.get_return_names(step.module, step.function)
+                if pred_returns:
+                    self.output_params_label.setText(", ".join(pred_returns))
+                else:
+                    self.output_params_label.setText("未知（无类型注解）")
+            
+            # 确保输出参数标签可见
+            self.output_params_label.setVisible(True)
+
         except Exception as e:
+            # 清除之前的参数，显示错误信息
+            self.clear_params()
             self.add_param_row("error", f"解析失败: {str(e)}", read_only=True)
     
     def _load_control_params(self, step: StepObject):
@@ -144,27 +188,48 @@ class ParamEditor(QWidget):
         Returns:
             QLineEdit: 创建的输入框
         """
-        row_layout = QHBoxLayout()
-        row_layout.setSpacing(0)
-        row_layout.setContentsMargins(0, 0, 0, 0)
+        # 创建一个容器widget来容纳这一行的所有元素，确保整行能够正确显示
+        row_widget = QWidget()
+        row_layout = QHBoxLayout(row_widget)
+        row_layout.setSpacing(5)  # 增加间距以确保元素不会重叠
+        row_layout.setContentsMargins(2, 2, 2, 2)  # 增加边距
         
+        # 创建标签
         label = QLabel(f"{param_name}:")
         label.setFixedWidth(100)
+        label.setWordWrap(True)  # 允许标签文本换行
+        label.setVisible(True)  # 确保标签可见
+        
+        # 创建输入框
         edit = QLineEdit(str(default_value))
         edit.setReadOnly(read_only)
+        edit.setMinimumWidth(200)  # 设置最小宽度，确保有足够空间输入
+        edit.setVisible(True)  # 确保输入框可见
         
+        # 将控件添加到布局
         row_layout.addWidget(label)
-        row_layout.addWidget(edit)
+        row_layout.addWidget(edit, 1)  # 设置伸展系数，使输入框能够占据剩余空间
         
-        # 引用按钮
-        ref_btn = QPushButton("引用")
-        ref_btn.setToolTip("插入对前一步骤输出/参数的引用")
-        ref_btn.setFixedWidth(48)
-        ref_btn.clicked.connect(lambda: self._show_ref_menu(edit))
-        row_layout.addWidget(ref_btn)
+        # 只有非只读项才添加引用按钮
+        if not read_only:
+            ref_btn = QPushButton("引用")
+            ref_btn.setToolTip("插入对前一步骤输出/参数的引用")
+            ref_btn.setFixedWidth(48)
+            ref_btn.clicked.connect(lambda: self._show_ref_menu(edit))
+            row_layout.addWidget(ref_btn)
         
-        self.input_params_layout.addLayout(row_layout)
+        # 确保行widget可见
+        row_widget.setVisible(True)
+        
+        # 将整行widget添加到参数布局中
+        self.input_params_layout.addWidget(row_widget)
+        
+        # 保存输入框引用
         self.param_widgets[param_name] = edit
+        
+        # 强制更新布局
+        self.input_params_widget.update()
+        self.input_params_widget.repaint()
         
         return edit
     
@@ -232,13 +297,32 @@ class ParamEditor(QWidget):
     
     def clear_params(self):
         """清除所有参数输入框"""
-        while self.input_params_layout.count():
-            child = self.input_params_layout.takeAt(0)
-            if child.layout():
-                while child.layout().count():
-                    widget = child.layout().takeAt(0).widget()
-                    if widget:
-                        widget.deleteLater()
+        # 遍历并移除所有子部件
+        while self.input_params_layout.count() > 0:
+            item = self.input_params_layout.takeAt(0)
+            widget = item.widget()
+            
+            if widget:
+                # 如果是widget，直接删除
+                widget.deleteLater()
+            elif item.layout():
+                # 如果是layout，删除其中的所有widget
+                layout = item.layout()
+                while layout.count() > 0:
+                    sub_item = layout.takeAt(0)
+                    sub_widget = sub_item.widget()
+                    if sub_widget:
+                        sub_widget.deleteLater()
+                # 删除layout本身
+                layout.deleteLater()
         
+        # 清空参数映射
         self.param_widgets.clear()
+        
+        # 重置输出参数标签
         self.output_params_label.setText("-")
+        
+        # 强制更新布局
+        self.input_params_widget.update()
+        self.input_params_widget.repaint()
+        self.updateGeometry()

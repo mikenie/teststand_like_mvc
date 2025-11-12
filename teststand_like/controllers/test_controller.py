@@ -72,6 +72,10 @@ class TestController:
         if self.param_editor:
             self.param_editor.set_test_loader(self.test_loader)
         
+        # 初始化监视器
+        if self.watcher_widget:
+            self.watcher_widget.update_watcher({})
+        
         # 设置引擎回调
         self.test_engine.set_callbacks(
             output_cb=self._on_engine_output,
@@ -82,7 +86,7 @@ class TestController:
         # 连接序列列表的信号
         if self.sequence_list:
             self.sequence_list.itemMoved.connect(self._on_sequence_changed)
-            self.sequence_list.currentItemChanged.connect(self._on_item_selection_changed)
+            self.sequence_list.currentItemChanged.connect(self._on_item_selection_changed_wrapper)
     
     def load_test_functions(self, directory=None):
         """加载测试函数
@@ -127,6 +131,25 @@ class TestController:
         exec_index = self.test_engine.get_execution_index()
         self._mark_execution_index(exec_index)
     
+    def clear_sequence(self):
+        """清空测试序列"""
+        if self.sequence_list:
+            self.sequence_list.clear_all_steps()
+        
+        if self.param_editor:
+            self.param_editor.clear_params()
+        
+        if self.watcher_widget:
+            # 确保清除监视器显示
+            self.watcher_widget.set_all_steps([])
+            self.watcher_widget.update_watcher({})
+        
+        if self.output_text:
+            self.output_text.clear()
+        
+        # 重置执行状态
+        self.test_engine.exec_state = None
+    
     def reset_execution(self):
         """重置执行状态"""
         steps = self.sequence_list.get_all_steps() if self.sequence_list else []
@@ -138,23 +161,10 @@ class TestController:
         
         # 重置执行标记
         self._mark_execution_index(0)
-    
-    def clear_sequence(self):
-        """清空测试序列"""
-        if self.sequence_list:
-            self.sequence_list.clear_all_steps()
         
-        if self.param_editor:
-            self.param_editor.clear_params()
-        
+        # 更新监视器显示
         if self.watcher_widget:
             self.watcher_widget.update_watcher({})
-        
-        if self.output_text:
-            self.output_text.clear()
-        
-        # 重置执行状态
-        self.test_engine.exec_state = None
     
     def _on_sequence_changed(self):
         """序列改变时的处理"""
@@ -166,35 +176,22 @@ class TestController:
         
         if self.watcher_widget:
             self.watcher_widget.set_all_steps(steps)
+            # 重要：更新监视器显示，而不仅仅是在清空时更新
             self.watcher_widget.update_watcher({})
         
         # 更新输出显示
         self._update_sequence_display()
     
-    def _on_item_selection_changed(self, current, previous):
-        """序列项选择改变时的处理"""
-        if not current or not self.param_editor:
-            if self.param_editor:
-                self.param_editor.clear_params()
-            return
-        
-        # 获取步骤对象和索引
-        step = current.data(Qt.ItemDataRole.UserRole)
-        index = self.sequence_list.row(current) if self.sequence_list else -1
-        
-        # 加载到参数编辑器
-        self.param_editor.load_step(step, index)
+    def _on_engine_watcher_update(self, runtime_vars: dict):
+        """引擎监视器更新回调"""
+        if self.watcher_widget:
+            self.watcher_widget.update_watcher(runtime_vars)
+            QApplication.processEvents()
     
     def _on_engine_output(self, message: str):
         """引擎输出回调"""
         if self.output_text:
             self.output_text.append(message)
-            QApplication.processEvents()
-    
-    def _on_engine_watcher_update(self, runtime_vars: dict):
-        """引擎监视器更新回调"""
-        if self.watcher_widget:
-            self.watcher_widget.update_watcher(runtime_vars)
             QApplication.processEvents()
     
     def _on_engine_status_update(self, step_index: int, success: bool):
@@ -211,15 +208,54 @@ class TestController:
             item.setIcon(icon)
             QApplication.processEvents()
     
-    def _clear_all_status_icons(self):
-        """清除所有状态图标"""
+    def _on_item_selection_changed_wrapper(self):
+        """序列项选择改变时的处理包装器（用于itemSelectionChanged信号）"""
         if not self.sequence_list:
             return
+            
+        current = self.sequence_list.currentItem()
+        # 注意：这里我们没有previous项的引用，所以传递None
+        self._on_item_selection_changed(current, None)
+    
+    def _on_item_selection_changed(self, current, previous):
+        """序列项选择改变时的处理"""
+        if not current or not self.param_editor:
+            if self.param_editor:
+                self.param_editor.clear_params()
+            return
         
-        for i in range(self.sequence_list.count()):
-            item = self.sequence_list.item(i)
-            if item:
-                item.setIcon(QIcon())
+        # 获取步骤对象和索引
+        step = current.data(Qt.ItemDataRole.UserRole)
+        index = self.sequence_list.row(current) if self.sequence_list else -1
+        
+        # 验证步骤对象的有效性
+        if not step:
+            self.param_editor.clear_params()
+            return
+            
+        # 确保参数编辑器的test_loader已设置
+        if not self.param_editor.test_loader and self.test_loader:
+            self.param_editor.set_test_loader(self.test_loader)
+            
+        # 确保参数编辑器有所有步骤的引用
+        if self.param_editor and self.sequence_list:
+            steps = self.sequence_list.get_all_steps()
+            self.param_editor.set_all_steps(steps)
+        
+        # 加载到参数编辑器
+        self.param_editor.load_step(step, index)
+    
+    def update_watcher_display(self):
+        """主动更新监视器显示"""
+        if self.watcher_widget:
+            steps = self.sequence_list.get_all_steps() if self.sequence_list else []
+            self.watcher_widget.set_all_steps(steps)
+            self.watcher_widget.update_watcher({})
+    
+    def _output(self, message: str):
+        """输出消息到输出框"""
+        if self.output_text:
+            self.output_text.append(message)
     
     def _mark_execution_index(self, index):
         """标记当前执行索引
@@ -248,24 +284,12 @@ class TestController:
                 
                 item.setText(display)
     
-    def _update_sequence_display(self):
-        """更新序列显示"""
-        if not self.output_text or not self.sequence_list:
+    def _clear_all_status_icons(self):
+        """清除所有状态图标"""
+        if not self.sequence_list:
             return
         
-        sequence_text = "当前测试序列:\n"
-        steps = self.sequence_list.get_all_steps()
-        
-        for i, step in enumerate(steps):
-            if step.type == 'function':
-                text = f"{step.module}.{step.function}"
-            else:
-                text = step.control
-            sequence_text += f"{i+1}. {text}\n"
-        
-        self.output_text.setText(sequence_text)
-    
-    def _output(self, message: str):
-        """输出消息到输出框"""
-        if self.output_text:
-            self.output_text.append(message)
+        for i in range(self.sequence_list.count()):
+            item = self.sequence_list.item(i)
+            if item:
+                item.setIcon(QIcon())
