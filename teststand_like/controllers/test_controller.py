@@ -2,10 +2,12 @@
 测试控制器
 协调UI和测试引擎之间的交互
 """
-from PyQt6.QtWidgets import QApplication
+import json
+import os
+from PyQt6.QtWidgets import QApplication, QFileDialog
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor
 from PyQt6.QtCore import Qt
-from core import TestLoader, TestEngine
+from core import TestLoader, TestEngine, ConfigManager
 
 
 class TestController:
@@ -17,6 +19,7 @@ class TestController:
     def __init__(self):
         self.test_loader = TestLoader()
         self.test_engine = TestEngine(self.test_loader)
+        self.config_manager = ConfigManager()
         
         # UI组件引用（将由主窗口设置）
         self.function_tree = None
@@ -95,7 +98,7 @@ class TestController:
             directory: 测试函数所在目录，None表示使用默认值'Testcase'
         """
         if directory is None or isinstance(directory, bool):
-            directory = 'Testcase'
+            directory = self.config_manager.get("test_directory", "Testcase")
         self.test_loader.load_from_directory(directory)
         
         # 更新函数树
@@ -165,6 +168,124 @@ class TestController:
         # 更新监视器显示
         if self.watcher_widget:
             self.watcher_widget.update_watcher({})
+    
+    def save_sequence(self, file_path=None):
+        """保存测试序列到文件
+        
+        Args:
+            file_path: 保存文件路径，如果为None则弹出文件选择对话框
+        """
+        if not self.sequence_list:
+            self._output("序列列表未初始化")
+            return False
+            
+        steps = self.sequence_list.get_all_steps()
+        if not steps:
+            self._output("序列为空，无需保存")
+            return False
+            
+        # 如果没有提供文件路径，则弹出文件选择对话框
+        if not file_path:
+            file_path, _ = QFileDialog.getSaveFileName(
+                None, "保存测试序列", "", "JSON Files (*.json);;All Files (*)"
+            )
+            if not file_path:
+                return False
+        
+        try:
+            # 序列化步骤
+            sequence_data = []
+            for step in steps:
+                step_data = {
+                    'id': step.id,
+                    'type': step.type,
+                    'module': step.module,
+                    'function': step.function,
+                    'control': step.control,
+                    'params': step.params,
+                    'outputs': step.outputs
+                }
+                sequence_data.append(step_data)
+            
+            # 保存到文件
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(sequence_data, f, ensure_ascii=False, indent=2)
+            
+            # 更新配置中的最后序列文件路径
+            self.config_manager.set_last_sequence_file(file_path)
+            self.config_manager.save_config()
+            
+            self._output(f"测试序列已保存到: {file_path}")
+            return True
+        except Exception as e:
+            self._output(f"保存序列失败: {str(e)}")
+            return False
+    
+    def load_sequence(self, file_path=None):
+        """从文件加载测试序列
+        
+        Args:
+            file_path: 加载文件路径，如果为None则弹出文件选择对话框
+        """
+        # 如果没有提供文件路径，则弹出文件选择对话框
+        if not file_path:
+            file_path, _ = QFileDialog.getOpenFileName(
+                None, "加载测试序列", "", "JSON Files (*.json);;All Files (*)"
+            )
+            if not file_path:
+                return False
+        
+        if not os.path.exists(file_path):
+            self._output(f"文件不存在: {file_path}")
+            return False
+            
+        try:
+            # 从文件读取数据
+            with open(file_path, 'r', encoding='utf-8') as f:
+                sequence_data = json.load(f)
+            
+            # 清空当前序列
+            self.clear_sequence()
+            
+            # 反序列化步骤并添加到列表
+            for step_data in sequence_data:
+                # 创建步骤对象
+                step = StepObject(
+                    type_=step_data['type'],
+                    module=step_data.get('module'),
+                    function=step_data.get('function'),
+                    control=step_data.get('control')
+                )
+                
+                # 恢复参数和输出
+                step.params = step_data.get('params', {})
+                step.outputs = step_data.get('outputs', {})
+                step.id = step_data.get('id', step.id)  # 尽可能保持原有ID
+                
+                # 创建列表项
+                if step.type == 'function':
+                    display_text = f"{step.module}.{step.function}"
+                else:
+                    display_text = step.control
+                
+                from PyQt6.QtWidgets import QListWidgetItem
+                item = QListWidgetItem(display_text)
+                item.setData(Qt.ItemDataRole.UserRole, step)
+                item.setData(Qt.ItemDataRole.UserRole + 1, step.id)
+                
+                # 添加到序列列表
+                self.sequence_list.addItem(item)
+            
+            # 更新配置中的最后序列文件路径
+            self.config_manager.set_last_sequence_file(file_path)
+            self.config_manager.save_config()
+            
+            self._output(f"测试序列已从 {file_path} 加载")
+            self._on_sequence_changed()  # 触发序列变更处理
+            return True
+        except Exception as e:
+            self._output(f"加载序列失败: {str(e)}")
+            return False
     
     def _on_sequence_changed(self):
         """序列改变时的处理"""
@@ -293,3 +414,6 @@ class TestController:
             item = self.sequence_list.item(i)
             if item:
                 item.setIcon(QIcon())
+
+# 导入StepObject以确保在load_sequence中可用
+from core.step_model import StepObject

@@ -11,6 +11,7 @@ from widgets import DraggableTreeWidget, DroppableListWidget, ParamEditor, Watch
 
 # 导入控制器
 from controllers import TestController
+from core import ConfigManager
 
 
 class MainWindow(QMainWindow):
@@ -19,8 +20,10 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.controller = TestController()
+        self.config_manager = ConfigManager()
         self.init_ui()
         self.create_menu_bar()
+        self.load_window_settings()
         
         # 初始化加载测试函数
         self.controller.load_test_functions()
@@ -33,6 +36,7 @@ class MainWindow(QMainWindow):
         # 创建主分割器
         main_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.setCentralWidget(main_splitter)
+        self.main_splitter = main_splitter
         
         # === 左侧区域：函数树 ===
         left_widget = QWidget()
@@ -52,6 +56,7 @@ class MainWindow(QMainWindow):
         # 创建序列区和监视器的水平分割
         seq_watcher_splitter = QSplitter(Qt.Orientation.Horizontal)
         seq_watcher_splitter.setHandleWidth(1)
+        self.seq_watcher_splitter = seq_watcher_splitter
         
         # --- 序列区域（左） ---
         seq_area = QWidget()
@@ -103,13 +108,15 @@ class MainWindow(QMainWindow):
         # 设置默认比例
         seq_watcher_splitter.setSizes([600, 400])
         
+        # 设置主分割器默认比例
+        main_splitter.setSizes([300, 900])
+        
         right_layout.addWidget(seq_watcher_splitter)
         
         # === 添加到主分割器 ===
         main_splitter.addWidget(left_widget)
         main_splitter.addWidget(right_widget)
         main_splitter.setHandleWidth(1)
-        main_splitter.setSizes([300, 900])
         
         # === 设置控制器的UI组件 ===
         self.controller.set_ui_components(
@@ -135,6 +142,51 @@ class MainWindow(QMainWindow):
         self.watcher_timer = QTimer(self)
         self.watcher_timer.timeout.connect(self.controller.update_watcher_display)
         self.watcher_timer.start(1000)  # 每秒更新一次
+        
+        # 确保窗口有初始大小
+        self.resize(1200, 700)
+    
+    def load_window_settings(self):
+        """加载窗口设置"""
+        # 设置窗口几何信息
+        geometry = self.config_manager.get("window_geometry")
+        if geometry:
+            self.setGeometry(
+                geometry.get("x", 100),
+                geometry.get("y", 100),
+                geometry.get("width", 1200),
+                geometry.get("height", 700)
+            )
+        
+        # 设置分割器尺寸
+        splitter_sizes = self.config_manager.get("splitter_sizes")
+        if splitter_sizes:
+            main_sizes = splitter_sizes.get("main", [300, 900])
+            seq_watcher_sizes = splitter_sizes.get("sequence_watcher", [600, 400])
+            self.main_splitter.setSizes(main_sizes)
+            self.seq_watcher_splitter.setSizes(seq_watcher_sizes)
+    
+    def save_window_settings(self):
+        """保存窗口设置"""
+        # 保存窗口几何信息
+        geometry = self.geometry()
+        self.config_manager.update_window_geometry(
+            geometry.x(), geometry.y(), geometry.width(), geometry.height()
+        )
+        
+        # 保存分割器尺寸
+        self.config_manager.update_splitter_sizes(
+            self.main_splitter.sizes(),
+            self.seq_watcher_splitter.sizes()
+        )
+        
+        # 保存配置
+        self.config_manager.save_config()
+    
+    def closeEvent(self, event):
+        """窗口关闭事件"""
+        self.save_window_settings()
+        super().closeEvent(event)
     
     def create_menu_bar(self):
         """创建菜单栏"""
@@ -145,6 +197,14 @@ class MainWindow(QMainWindow):
         load_action = file_menu.addAction('Load Test Functions')
         load_action.triggered.connect(self.controller.load_test_functions)
         
+        file_menu.addSeparator()
+        save_sequence_action = file_menu.addAction('Save Sequence')
+        save_sequence_action.triggered.connect(self.controller.save_sequence)
+        
+        load_sequence_action = file_menu.addAction('Load Sequence')
+        load_sequence_action.triggered.connect(self.controller.load_sequence)
+        
+        file_menu.addSeparator()
         clear_action = file_menu.addAction('Clear Sequence')
         clear_action.triggered.connect(self.controller.clear_sequence)
         

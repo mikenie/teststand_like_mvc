@@ -1,0 +1,20 @@
+{
+  "test_directory": "Testcase",
+  "last_sequence_file": "",
+  "window_geometry": {
+    "x": 0,
+    "y": 23,
+    "width": 1920,
+    "height": 1017
+  },
+  "splitter_sizes": {
+    "main": [
+      218,
+      1701
+    ],
+    "sequence_watcher": [
+      1125,
+      575
+    ]
+  }
+}

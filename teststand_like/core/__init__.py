@@ -9,8 +9,9 @@ Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查�
 """
 核心测试引擎模块
 """
-from .step_model import StepObject, BreakLoop
+from .step_model import StepObject
 from .test_loader import TestLoader
 from .test_engine import TestEngine
+from .config_manager import ConfigManager
 
-__all__ = ['StepObject', 'BreakLoop', 'TestLoader', 'TestEngine']
+__all__ = ['StepObject', 'TestLoader', 'TestEngine', 'ConfigManager']
