@@ -129,6 +129,47 @@ class TestEngine:
             self._output(f"进入 for: 设 {varname} = {entry['iterator'][entry['pos']]}，下一索引 {self.exec_state['index']}")
             return
         
+        # 处理if语句
+        if isinstance(step, StepObject) and step.type == 'control' and step.control == 'if':
+            match = self._find_matching_end(start)
+            cond_raw = step.params.get('condition', '')
+            cond_val = self.resolve_references(cond_raw, dict(self.exec_state['vars']))
+            cond_bool = cond_val if isinstance(cond_val, bool) else self._safe_eval(str(cond_val), dict(self.exec_state['vars']))
+            
+            self._output(f"IF condition ({cond_raw}) -> {cond_bool}")
+            self._update_watcher(dict(self.exec_state['vars']))
+            
+            if cond_bool:
+                # 条件为真，进入if块
+                self.exec_state['index'] = start + 1
+                self._output(f"条件为真，进入 if 块，下一索引 {self.exec_state['index']}")
+            else:
+                # 条件为假，跳过整个if块
+                self.exec_state['index'] = match + 1 if match != -1 else start + 1
+                self._output(f"条件为假，跳过 if 块，下一索引 {self.exec_state['index']}")
+            return
+            
+        # 处理break语句
+        if isinstance(step, StepObject) and step.type == 'control' and step.control == 'break':
+            # 查找包含的循环
+            enclosing = self._find_enclosing_loop(start)
+            if enclosing is not None:
+                # 从循环中移除
+                try:
+                    self.exec_state['loop_stack'].remove(enclosing)
+                except Exception:
+                    pass
+                # 跳转到循环结束位置
+                ni = enclosing['end'] + 1
+                self.exec_state['index'] = ni
+                self._output(f"在循环内遇到 break，跳至索引 {ni}")
+                return
+            else:
+                # 不在循环内，简单地跳过break语句
+                self.exec_state['index'] = start + 1
+                self._output("遇到 break（未在循环内），已忽略。")
+                return
+        
         # 查找包含的循环
         enclosing = self._find_enclosing_loop(start)
         if enclosing is not None:
