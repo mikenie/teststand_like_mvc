@@ -6,7 +6,7 @@ import json
 import os
 from PyQt6.QtWidgets import QApplication, QFileDialog
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from core import TestLoader, TestEngine, ConfigManager
 
 
@@ -90,6 +90,8 @@ class TestController:
         if self.sequence_list:
             self.sequence_list.itemMoved.connect(self._on_sequence_changed)
             self.sequence_list.currentItemChanged.connect(self._on_item_selection_changed_wrapper)
+            # 连接itemMoved信号到更新显示的方法
+            self.sequence_list.itemMoved.connect(self._update_sequence_display)
     
     def load_test_functions(self, directory=None):
         """加载测试函数
@@ -106,6 +108,9 @@ class TestController:
             self.function_tree.populate_from_loader(self.test_loader)
         
         self._output("测试函数已加载")
+        
+        # 更新显示
+        self._update_sequence_display()
     
     def run_sequence(self):
         """运行整个测试序列"""
@@ -119,6 +124,9 @@ class TestController:
         
         self.test_engine.set_steps(steps)
         self.test_engine.run_all()
+        
+        # 运行结束后更新显示
+        self._update_sequence_display()
     
     def step_run(self):
         """单步执行"""
@@ -130,7 +138,7 @@ class TestController:
         self.test_engine.set_steps(steps)
         self.test_engine.step_run()
         
-        # 更新执行标记
+        # 更新执行标记和显示
         exec_index = self.test_engine.get_execution_index()
         self._mark_execution_index(exec_index)
     
@@ -152,6 +160,9 @@ class TestController:
         
         # 重置执行状态
         self.test_engine.exec_state = None
+        
+        # 更新显示
+        self._update_sequence_display()
     
     def reset_execution(self):
         """重置执行状态"""
@@ -168,6 +179,9 @@ class TestController:
         # 更新监视器显示
         if self.watcher_widget:
             self.watcher_widget.update_watcher({})
+            
+        # 更新序列显示（包含缩进）
+        self._update_sequence_display()
     
     def save_sequence(self, file_path=None):
         """保存测试序列到文件
@@ -282,6 +296,7 @@ class TestController:
             
             self._output(f"测试序列已从 {file_path} 加载")
             self._on_sequence_changed()  # 触发序列变更处理
+            self._update_sequence_display()  # 确保更新显示（包括缩进）
             return True
         except Exception as e:
             self._output(f"加载序列失败: {str(e)}")
@@ -365,6 +380,9 @@ class TestController:
         
         # 加载到参数编辑器
         self.param_editor.load_step(step, index)
+        
+        # 更新显示以确保当前项正确高亮
+        self._update_sequence_display()
     
     def update_watcher_display(self):
         """主动更新监视器显示"""
@@ -387,7 +405,26 @@ class TestController:
         if not self.sequence_list:
             return
         
+        # 更新所有项的显示（包括缩进）
+        self._update_sequence_display(index)
+    
+    def _update_sequence_display(self, highlight_index=None):
+        """更新序列显示，包括缩进和高亮标记
+        
+        Args:
+            highlight_index: 要高亮显示的索引，None表示不高亮
+        """
+        if not self.sequence_list:
+            return
+        
         steps = self.sequence_list.get_all_steps()
+        
+        # 如果没有步骤，直接返回
+        if not steps:
+            return
+            
+        # 计算每个步骤的缩进级别
+        indent_levels = self._calculate_indent_levels(steps)
         
         for i in range(self.sequence_list.count()):
             item = self.sequence_list.item(i)
@@ -399,11 +436,48 @@ class TestController:
                 else:
                     base = step.control
                 
-                display = f"{i+1}. {base}"
-                if index is not None and i == index:
+                # 应用缩进
+                indent = "    " * indent_levels[i]  # 每级缩进2个空格
+                
+                display = f"{i+1}. {indent}{base}"
+                if highlight_index is not None and i == highlight_index:
                     display = f"{display}  <-"
                 
                 item.setText(display)
+    
+    def _calculate_indent_levels(self, steps):
+        """计算每个步骤的缩进级别
+        
+        Args:
+            steps: 步骤对象列表
+            
+        Returns:
+            list: 每个步骤对应的缩进级别列表
+        """
+        indent_levels = [0] * len(steps)  # 初始化缩进级别为0
+        indent_stack = []  # 用于跟踪缩进级别的栈
+        
+        for i, step in enumerate(steps):
+            if step.type == 'control':
+                if step.control == 'end':
+                    # 对于end语句，从栈中弹出一个缩进级别
+                    if indent_stack:
+                        indent_stack.pop()
+                    # end语句与对应的for/if语句对齐（不缩进）
+                    indent_levels[i] = len(indent_stack)
+                elif step.control == 'for' or step.control == 'if':
+                    # for/if语句本身不缩进
+                    indent_levels[i] = len(indent_stack)
+                    # 增加后续语句的缩进级别
+                    indent_stack.append(i)
+                else:
+                    # 其他控制语句（如break）使用当前缩进级别
+                    indent_levels[i] = len(indent_stack)
+            else:
+                # 函数步骤使用当前缩进级别
+                indent_levels[i] = len(indent_stack)
+        
+        return indent_levels
     
     def _clear_all_status_icons(self):
         """清除所有状态图标"""

@@ -1,6 +1,6 @@
 {
   "test_directory": "Testcase",
-  "last_sequence_file": "",
+  "last_sequence_file": "D:/Mike/teststand_like_mvc/teststand_like/mysequence/try.json",
   "window_geometry": {
     "x": 0,
     "y": 23,
@@ -13,8 +13,8 @@
       1701
     ],
     "sequence_watcher": [
-      1125,
-      575
+      1264,
+      436
     ]
   }
 }
