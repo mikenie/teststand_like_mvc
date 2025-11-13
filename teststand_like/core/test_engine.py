@@ -391,13 +391,10 @@ class TestEngine:
                     else:
                         step.outputs['return'] = result
                         try:
-                            for pn, pv in args.items():
-                                if pv == result:
-                                    step.outputs[pn] = result
+                            # 将返回值与函数中使用的变量名关联
                             preds = self.test_loader.get_return_names(module_name, func_name)
                             for pred in preds:
-                                if pred not in step.outputs:
-                                    step.outputs[pred] = result
+                                step.outputs[pred] = result
                         except Exception:
                             pass
                     
